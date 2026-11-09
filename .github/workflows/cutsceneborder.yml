@@ -16,7 +16,7 @@ jobs:
           #include <mod/logger.h>
           #include <mod/config.h>
 
-          MYMODCFG(net.iqbal.cutsceneborder, Cutscene Border, 1.0, Iqbal)
+          MYMODCFG(net.iqbal.cutsceneborder, Cutscene Border, 1.1, Iqbal)
           NEEDGAME(com.rockstargames.gtasa)
 
           // Susunan CRect di GTA SA: left, bottom, right, top
@@ -28,16 +28,18 @@ jobs:
 
           // Tinggi garis hitam dalam persen dari tinggi layar (layar virtual game 640x448)
           static int g_barPercent = 12;
+          // Mode tes: kalau 1, garis hitam selalu tampil walau tidak ada cutscene
+          static int g_alwaysOn = 0;
 
           DECL_HOOKv(Render2dStuff)
           {
               // Digambar sebelum 2D lain supaya subtitle tetap tampil di atas garis hitam
-              if (pCutsceneRunning && *pCutsceneRunning && DrawRect)
+              if (DrawRect && (g_alwaysOn || (pCutsceneRunning && *pCutsceneRunning)))
               {
                   float h = 448.0f * (float)g_barPercent / 100.0f;
                   CRGBA black = { 0, 0, 0, 255 };
 
-                  CRect topBar    = { -300.0f, h,            940.0f, -10.0f };
+                  CRect topBar    = { -300.0f, h,      940.0f, -10.0f };
                   CRect bottomBar = { -300.0f, 458.0f, 940.0f, 448.0f - h };
 
                   DrawRect(topBar, black);
@@ -57,24 +59,31 @@ jobs:
                   return;
               }
 
+              pCutsceneRunning = (bool*)aml->GetSym(hGTASA, "_ZN12CCutsceneMgr10ms_runningE");
+              DrawRect = (void (*)(const CRect&, const CRGBA&))aml->GetSym(hGTASA, "_ZN9CSprite2d8DrawRectERK5CRectRK5CRGBA");
+              uintptr_t pRender2d = aml->GetSym(hGTASA, "_Z13Render2dStuffv");
+
               int v = cfg->Bind("BarHeightPercent", 12, "General")->GetInt();
               cfg->ClearLast();
               if (v < 0)  v = 0;
               if (v > 40) v = 40;
               g_barPercent = v;
+
+              g_alwaysOn = cfg->Bind("AlwaysOn", 0, "General")->GetInt();
+              cfg->ClearLast();
+
+              // Laporan status simbol (1 = ditemukan, 0 = tidak ditemukan), ditulis ke file ini
+              cfg->Bind("FoundCutsceneRunning", pCutsceneRunning ? 1 : 0, "Debug");
+              cfg->ClearLast();
+              cfg->Bind("FoundDrawRect", DrawRect ? 1 : 0, "Debug");
+              cfg->ClearLast();
+              cfg->Bind("FoundRender2dStuff", pRender2d ? 1 : 0, "Debug");
+              cfg->ClearLast();
               cfg->Save();
 
-              pCutsceneRunning = (bool*)aml->GetSym(hGTASA, "_ZN12CCutsceneMgr10ms_runningE");
-              if (!pCutsceneRunning)
+              if (!DrawRect || !pRender2d)
               {
-                  logger->Error("Simbol CCutsceneMgr::ms_running tidak ditemukan");
-                  return;
-              }
-
-              DrawRect = (void (*)(const CRect&, const CRGBA&))aml->GetSym(hGTASA, "_ZN9CSprite2d8DrawRectERK5CRectRK5CRGBA");
-              if (!DrawRect)
-              {
-                  logger->Error("Simbol CSprite2d::DrawRect tidak ditemukan");
+                  logger->Error("Simbol penting tidak ditemukan, plugin tidak aktif");
                   return;
               }
 
